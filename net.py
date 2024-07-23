@@ -5,9 +5,9 @@ Created on Tue Dec 20 22:13:34 2022
 
 @author: zzhang99
 """
-from jax import random, jacrev
+from jax import random
 import jax.numpy as jnp
-import jax
+import jax.nn as nn
 
 def random_layer_params(ind, outd, numNN, key):
     scale = jnp.sqrt(2 / (ind + outd))
@@ -30,17 +30,18 @@ def multi_fnn_index(params, x, indices = None):
     x = x @ W + b
     return x
 
-def multi_fnn_fixed_bd(params, x, indices = None):
+def multi_fnn_index_fixed_bd(params, x, indices = None):
     bd_term = x * (1 - x)
-    for i in range(len(params) - 1):
-        W, b = params[i]
-        W, b = W[indices], b[indices]
-        x = jnp.tanh(x @ W + b)
-    W, b = params[-1]
-    W, b = W[indices], b[indices]
-    x = jnp.exp(x @ W + b) * bd_term
+    x = jnp.exp(multi_fnn_index(params, x, indices)) * bd_term
     return x
+
     
+def multi_fnn_index_fixed_bd_norm(params, x, indices = None):
+    f = multi_fnn_index_fixed_bd(params, x, indices)
+    x_all = jnp.tile(jnp.linspace(0, 1, 100)[None, :, None], (x.shape[0], 1, 1))
+    f_max = multi_fnn_index_fixed_bd(params, x_all, indices).max(axis=1, keepdims=True)
+    return f / f_max / 4
+
 def multi_fnn(params, x):
     for i in range(len(params) - 1):
         W, b = params[i]
@@ -48,19 +49,3 @@ def multi_fnn(params, x):
     W, b = params[-1]
     x = x @ W + b
     return x
-
-def fnn_sum(params, f, x, *args):
-    return jnp.sum(f(params, x, *args), axis=(0, 1))
-
-def fnn_jacobian(params, f, x, *args):
-    dfdx = jacrev(fnn_sum, argnums = 2)(params, f, x, *args).squeeze(-1)
-    return jnp.transpose(dfdx, (1,2,0))
-
-def jvp(params, f, x, *args):
-    # make a JAX function
-    def _fn(_x):
-        return f(params, _x, *args)
-    
-    # call jvp (forward mode) for computation of gradients
-    _, tangents = jax.jvp(_fn, primals=(x, ), tangents=(jnp.ones_like(x), ))
-    return tangents
